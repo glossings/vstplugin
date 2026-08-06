@@ -1522,6 +1522,12 @@ VstIntPtr VSTCALLBACK VST2Plugin::hostCallback(AEffect *plugin, VstInt32 opcode,
 VstIntPtr VST2Plugin::callback(VstInt32 opcode, VstInt32 index, VstIntPtr value, void *p, float opt){
     switch(opcode) {
     case audioMasterAutomate:
+        // During probing the PluginDesc does not exist yet - some plugins
+        // automate parameters from their own init code (see VST3Plugin::performEdit).
+        if (!info_) {
+            LOG_DEBUG("audioMasterAutomate called during probe");
+            break;
+        }
         // ignore bogus parameter changes, e.g. as sent by ReaPlugs.
         if (index >= 0 && index < info().numParameters()) {
             if (listener_) {

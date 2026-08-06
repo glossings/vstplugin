@@ -865,6 +865,15 @@ tresult VST3Plugin::beginEdit(Vst::ParamID id){
 }
 
 tresult VST3Plugin::performEdit(Vst::ParamID id, Vst::ParamValue value){
+    if (!info_){
+        // We are being probed: the PluginDesc does not exist yet and there is
+        // nobody to notify. Some plugins (e.g. Antares Auto-Tune Pro, Plogue
+        // sforzando, Arturia V Collection) automate parameters from their own
+        // init code, which would crash the probe process on the null info_.
+        LOG_DEBUG("performEdit() called during probe: id = "
+                  << id << ", value = " << value);
+        return kResultOk;
+    }
     int index = info().getParamIndex(id);
     if (index >= 0 && listener_){
         listener_->parameterAutomated(index, value);
