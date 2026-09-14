@@ -8,12 +8,77 @@
 #endif
 
 #include <atomic>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <dispatch/dispatch.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+// Host transport keys. A host that sets POPTART_HOTKEY_PORT gets Cmd/Ctrl+Return and Cmd/Ctrl+.
+// typed into an editor window as an OSC message on 127.0.0.1:<port> - "/poptart/hotkey" with
+// "eval" or "stop" - instead of the window swallowing them with a system beep. Without the
+// variable nothing is intercepted and the keys reach the plugin as before.
+static int hotkeyPort() {
+    static int port = [] {
+        const char *s = getenv("POPTART_HOTKEY_PORT");
+        int p = s ? atoi(s) : 0;
+        return (p > 0 && p < 65536) ? p : 0;
+    }();
+    return port;
+}
+
+static void sendHotkey(const char *action) {
+    static int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) return;
+    // OSC strings are NUL-terminated and padded to a multiple of 4 bytes.
+    char buf[64] = {0};
+    size_t n = 0;
+    auto put = [&](const char *str) {
+        size_t len = strlen(str);
+        memcpy(buf + n, str, len);
+        n += (len + 4) & ~size_t(3);
+    };
+    put("/poptart/hotkey");
+    put(",s");
+    put(action);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(hotkeyPort());
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sendto(sock, buf, n, 0, (sockaddr *)&addr, sizeof(addr));
+}
+
+// YES when the event was a transport key and has been handled (sent, or dropped as a key repeat).
+static BOOL handleHotkey(NSEvent *event) {
+    if (event.type != NSKeyDown || !hotkeyPort()) return NO;
+    NSEventModifierFlags flags = event.modifierFlags;
+    if (!(flags & (NSCommandKeyMask | NSControlKeyMask)) || (flags & NSShiftKeyMask)) return NO;
+    const char *action = nullptr;
+    if (event.keyCode == 36 || event.keyCode == 76) { // Return, keypad Enter
+        action = "eval";
+    } else if ([event.charactersIgnoringModifiers isEqualToString:@"."]) {
+        action = "stop";
+    }
+    if (!action) return NO;
+    if (!event.isARepeat) {
+        LOG_DEBUG("Cocoa: host hotkey " << action);
+        sendHotkey(action);
+    }
+    return YES;
+}
 
 // CocoaEditorWindow
 
 @implementation CocoaEditorWindow {}
+
+// Ctrl combos don't go through performKeyEquivalent, so the transport keys are caught here too.
+- (void)sendEvent:(NSEvent *)event {
+    if (handleHotkey(event)) return;
+    [super sendEvent:event];
+}
 
 - (void)setOwner:(vst::IWindow *)owner {
     owner_ = owner;
@@ -53,6 +118,7 @@
     static_cast<vst::Cocoa::Window *>(owner_)->updateEditor();
 }
 - (BOOL)performKeyEquivalent:(NSEvent *)event {
+    if (handleHotkey(event)) return TRUE;
     if (event.type == NSKeyDown){
         if (event.modifierFlags & NSCommandKeyMask){
             auto chars = event.charactersIgnoringModifiers.UTF8String;
