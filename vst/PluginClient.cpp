@@ -89,6 +89,7 @@ PluginClient::PluginClient(IFactory::const_ptr f, PluginDesc::const_ptr desc,
                         "PluginClient: couldn't create tmp file");
         }
         file << info;
+        file.flush(); // the file is still open when the server reads it (see sendData())
         if (!file){
             throw Error(Error::SystemError,
                         "PluginClient: couldn't write info to tmp file");
@@ -733,6 +734,10 @@ void PluginClient::sendData(Command::Type type, const char *data, size_t size){
                         "PluginClient: couldn't create tmp file");
         }
         file.write(data, size);
+        // The file stays open until sendFile() returns (the TmpFile destructor removes it), so
+        // flush: otherwise the last partial stream buffer is still in this process when the
+        // server reads the file, and it reads a program truncated to a multiple of the buffer size.
+        file.flush();
         if (!file){
             throw Error(Error::SystemError,
                         "PluginClient: couldn't write plugin data to tmp file");
