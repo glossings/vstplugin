@@ -474,7 +474,15 @@ std::vector<CpuArch> getPluginCpuArchitectures(const std::string& path){
         return results;
     } else {
         // plugin file
-        return doGetCpuArchitectures(path, true);
+        auto results = doGetCpuArchitectures(path, true);
+        // A file that is not a module at all (e.g. a Windows DLL or a text file with a
+        // plugin extension in a macOS plugin folder), or one that can't be opened, yields
+        // no architectures. Match the bundle branch and throw, so callers never see an
+        // empty list - PluginFactory reads archs.front().
+        if (results.empty()) {
+            throw Error(Error::ModuleError, "not a plugin binary");
+        }
+        return results;
     }
 }
 

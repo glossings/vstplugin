@@ -75,6 +75,12 @@ PluginFactory::PluginFactory(const std::string &path)
     auto archs = getPluginCpuArchitectures(path);
     auto hostArch = getHostCpuArchitecture();
 
+    // never read archs.front() below on an empty list: this constructor runs inside the
+    // host process, so that is a crash of the whole audio server, not of a probe
+    if (archs.empty()){
+        throw Error(Error::ModuleError, "no CPU architectures found");
+    }
+
     if (std::find(archs.begin(), archs.end(), hostArch) != archs.end()){
         arch_ = hostArch;
     } else {
